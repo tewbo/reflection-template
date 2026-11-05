@@ -2,12 +2,14 @@ package org.example.generator;
 
 import org.example.generator.samples.Account;
 import org.example.generator.samples.Animal;
+import org.example.generator.samples.Basket;
 import org.example.generator.samples.Car;
 import org.example.generator.samples.Cat;
 import org.example.generator.samples.Dog;
 import org.example.generator.samples.Fish;
 import org.example.generator.samples.Payment;
 import org.example.generator.samples.Plain;
+import org.example.generator.samples.PlainBasket;
 import org.example.generator.samples.Vehicle;
 import org.example.generator.samples.explicit.CardPayment;
 import org.junit.jupiter.api.RepeatedTest;
@@ -17,6 +19,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -39,7 +42,7 @@ class GeneratableSemanticsTest {
     }
 
     @Test
-    void onlyAnnotatedImplementationsAreChosen() {
+    void allListedImplementationsAreChosen() {
         Set<Class<?>> implementations = new HashSet<>();
         for (int i = 0; i < 100; i++) {
             implementations.add(generator.generateValueOfType(Animal.class).getClass());
@@ -53,8 +56,24 @@ class GeneratableSemanticsTest {
         assertThrows(GenerationException.class, () -> generator.generateValueOfType(Fish.class));
     }
 
+    @Test
+    void annotatedUserCollectionIsCreatedThroughItsConstructor() {
+        Basket basket = generator.generateValueOfType(Basket.class);
+
+        assertFalse(basket.isEmpty());
+        basket.forEach(item -> assertInstanceOf(String.class, item));
+    }
+
+    @Test
+    void unannotatedUserCollectionIsRejectedAsNotGeneratable() {
+        GenerationException exception = assertThrows(GenerationException.class,
+                () -> generator.generateValueOfType(PlainBasket.class));
+
+        assertTrue(exception.getMessage().contains("@Generatable"));
+    }
+
     @RepeatedTest(10)
-    void explicitImplementationsOverridePackageScan() {
+    void implementationFromAnotherPackageIsSupported() {
         assertInstanceOf(CardPayment.class, generator.generateValueOfType(Payment.class));
     }
 

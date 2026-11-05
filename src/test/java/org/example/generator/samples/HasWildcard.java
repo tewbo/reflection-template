@@ -2,6 +2,10 @@ package org.example.generator.samples;
 
 import org.example.generator.Generatable;
 
+import java.util.List;
+
 @Generatable
-public class CashPayment implements Payment {
+public class HasWildcard {
+    public HasWildcard(List<?> items) {
+    }
 }

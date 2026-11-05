@@ -5,7 +5,10 @@ import org.example.generator.samples.BadRange;
 import org.example.generator.samples.Broken;
 import org.example.generator.samples.EmptyEnum;
 import org.example.generator.samples.HasUnsupported;
+import org.example.generator.samples.HasWildcard;
 import org.example.generator.samples.Hidden;
+import org.example.generator.samples.Swimmer;
+import org.example.generator.samples.Toy;
 import org.example.generator.samples.Unimplemented;
 import org.junit.jupiter.api.Test;
 
@@ -50,11 +53,27 @@ class FailureTest {
     }
 
     @Test
-    void interfaceWithoutImplementationsFails() {
+    void interfaceWithoutListedImplementationsFails() {
         GenerationException exception = assertThrows(GenerationException.class,
                 () -> generator.generateValueOfType(Unimplemented.class));
 
-        assertTrue(exception.getMessage().contains("No concrete"));
+        assertTrue(exception.getMessage().contains("must list its implementations"));
+    }
+
+    @Test
+    void listedImplementationWithoutAnnotationFails() {
+        GenerationException exception = assertThrows(GenerationException.class,
+                () -> generator.generateValueOfType(Swimmer.class));
+
+        assertTrue(exception.getMessage().contains("not annotated"));
+    }
+
+    @Test
+    void listedClassThatIsNotSubtypeFails() {
+        GenerationException exception = assertThrows(GenerationException.class,
+                () -> generator.generateValueOfType(Toy.class));
+
+        assertTrue(exception.getMessage().contains("not a concrete subtype"));
     }
 
     @Test
@@ -84,6 +103,14 @@ class FailureTest {
                 () -> generator.generateValueOfType(HasUnsupported.class));
 
         assertInstanceOf(GenerationException.class, exception.getCause());
+    }
+
+    @Test
+    void wildcardParameterIsReportedAsUnsupportedKindOfType() {
+        GenerationException exception = assertThrows(GenerationException.class,
+                () -> generator.generateValueOfType(HasWildcard.class));
+
+        assertTrue(exception.getCause().getMessage().contains("Unsupported kind of type"));
     }
 
     @Test

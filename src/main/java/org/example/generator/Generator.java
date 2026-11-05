@@ -2,14 +2,11 @@ package org.example.generator;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
-import java.lang.reflect.TypeVariable;
-import java.lang.reflect.WildcardType;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -50,7 +47,6 @@ public class Generator {
 
     private final Random random;
     private final int maxDepth;
-    private final ImplementationFinder implementationFinder = new ImplementationFinder();
 
     public Generator() {
         this(new Random());
@@ -86,21 +82,6 @@ public class Generator {
             return generateOfClass((Class<?>) parameterizedType.getRawType(),
                     parameterizedType.getActualTypeArguments(), range, depth);
         }
-        if (type instanceof GenericArrayType arrayType) {
-            Type componentType = arrayType.getGenericComponentType();
-            return generateArray(rawClassOf(componentType), componentType, range, depth);
-        }
-        if (type instanceof WildcardType wildcardType) {
-            if (wildcardType.getLowerBounds().length > 0) {
-                return generate(wildcardType.getLowerBounds()[0], range, depth);
-            }
-            Type upperBound = wildcardType.getUpperBounds()[0];
-            return generate(upperBound == Object.class ? DEFAULT_ELEMENT_TYPE : upperBound, range, depth);
-        }
-        if (type instanceof TypeVariable<?> variable) {
-            throw new GenerationException("Cannot generate a value of unresolved type variable '"
-                    + variable.getName() + "' declared in " + variable.getGenericDeclaration());
-        }
         throw new GenerationException("Unsupported kind of type: " + type);
     }
 
@@ -118,7 +99,10 @@ public class Generator {
             return generateEnumConstant(type);
         }
         if (type.isArray()) {
-            return generateArray(type.getComponentType(), type.getComponentType(), range, depth);
+            return generateArray(type.getComponentType(), range, depth);
+        }
+        if (!isPlatformType(type)) {
+            return generateUserObject(type, depth);
         }
         if (Collection.class.isAssignableFrom(type)) {
             return generateCollection(type, typeArgumentOrDefault(typeArguments, 0, DEFAULT_ELEMENT_TYPE), range, depth);
@@ -129,12 +113,9 @@ public class Generator {
                     typeArgumentOrDefault(typeArguments, 1, DEFAULT_ELEMENT_TYPE),
                     range, depth);
         }
-        if (isPlatformType(type)) {
-            throw new GenerationException("Unsupported platform type " + type.getName()
-                    + ": only primitives, wrappers, String, enums, arrays, collections, maps "
-                    + "and @Generatable user types are supported");
-        }
-        return generateUserObject(type, depth);
+        throw new GenerationException("Unsupported platform type " + type.getName()
+                + ": only primitives, wrappers, String, enums, arrays, collections, maps "
+                + "and @Generatable user types are supported");
     }
 
     private Object generatePrimitive(Class<?> primitive, Range range) {
@@ -209,9 +190,9 @@ public class Generator {
         return constants[random.nextInt(constants.length)];
     }
 
-    private Object generateArray(Class<?> componentClass, Type componentType, Range range, int depth) {
+    private Object generateArray(Class<?> componentType, Range range, int depth) {
         int length = randomContainerSize();
-        Object array = Array.newInstance(componentClass, length);
+        Object array = Array.newInstance(componentType, length);
         for (int i = 0; i < length; i++) {
             Array.set(array, i, generate(componentType, range, depth));
         }
@@ -260,15 +241,33 @@ public class Generator {
         if (depth > maxDepth) {
             return null;
         }
-        if (ImplementationFinder.isInstantiable(type)) {
+        if (isInstantiable(type)) {
             return instantiate(type, depth);
         }
-        List<Class<?>> implementations = implementationFinder.findImplementations(type);
-        if (implementations.isEmpty()) {
-            throw new GenerationException("No concrete @" + Generatable.class.getSimpleName()
-                    + " implementations found for " + type.getName());
+        Class<?>[] implementations = annotation.implementations();
+        if (implementations.length == 0) {
+            throw new GenerationException("Abstract type " + type.getName() + " must list its implementations in @"
+                    + Generatable.class.getSimpleName() + "(implementations = ...)");
         }
-        return instantiate(implementations.get(random.nextInt(implementations.size())), depth);
+        for (Class<?> implementation : implementations) {
+            requireValidImplementation(type, implementation);
+        }
+        return instantiate(implementations[random.nextInt(implementations.length)], depth);
+    }
+
+    private static void requireValidImplementation(Class<?> type, Class<?> implementation) {
+        if (!type.isAssignableFrom(implementation) || !isInstantiable(implementation)) {
+            throw new GenerationException("Implementation " + implementation.getName() + " listed for "
+                    + type.getName() + " is not a concrete subtype of it");
+        }
+        if (!implementation.isAnnotationPresent(Generatable.class)) {
+            throw new GenerationException("Implementation " + implementation.getName() + " listed for "
+                    + type.getName() + " is not annotated with @" + Generatable.class.getSimpleName());
+        }
+    }
+
+    private static boolean isInstantiable(Class<?> type) {
+        return !type.isInterface() && !Modifier.isAbstract(type.getModifiers());
     }
 
     private Object instantiate(Class<?> type, int depth) {
@@ -336,19 +335,6 @@ public class Generator {
 
     private static Type typeArgumentOrDefault(Type[] typeArguments, int index, Type defaultType) {
         return index < typeArguments.length ? typeArguments[index] : defaultType;
-    }
-
-    private static Class<?> rawClassOf(Type type) {
-        if (type instanceof Class<?> rawType) {
-            return rawType;
-        }
-        if (type instanceof ParameterizedType parameterizedType) {
-            return (Class<?>) parameterizedType.getRawType();
-        }
-        if (type instanceof GenericArrayType arrayType) {
-            return rawClassOf(arrayType.getGenericComponentType()).arrayType();
-        }
-        return Object.class;
     }
 
     private static boolean isPlatformType(Class<?> type) {
